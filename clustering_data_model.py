@@ -5,6 +5,11 @@ from sklearn.cluster import KMeans
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import train_test_split
 
+from pyspark.ml.feature import VectorAssembler
+from pyspark.sql import SparkSession
+
+
+
 # pip install pandas numpy scikit-learn
 
 
@@ -66,9 +71,55 @@ def clustering(df, feature_columns, k=3):
     """
     Apply K-Means clustering using sklearn.
     """
-    kmeans = KMeans(n_clusters=k, random_state=42)
-    df["Cluster"] = kmeans.fit_predict(df[feature_columns])
-    return df
+
+    # Create a feature vector
+    assembler = VectorAssembler(inputCols=feature_columns, outputCol="features")
+    data = assembler.transform(df)
+
+    # Apply K-Means clustering
+    kmeans = KMeans(k=k, seed=1)
+    model = kmeans.fit(data)
+
+    # Assign clusters to the dataset
+    result = model.transform(data)
+    return result
+
+
+from pyspark.ml.clustering import KMeans
+from pyspark.ml.feature import VectorAssembler
+
+
+
+def clustering_spark(df, feature_columns, spark, k=3):
+    """
+    Apply K-Means clustering using PySpark.
+
+    Args:
+        df (pd.DataFrame): Pandas DataFrame to convert to Spark DataFrame.
+        feature_columns (list): List of column names to use as features.
+        spark (SparkSession): Spark session instance.
+        k (int): Number of clusters.
+
+    Returns:
+        pyspark.sql.DataFrame: Spark DataFrame with cluster assignments.
+    """
+    # Convert Pandas DataFrame to Spark DataFrame
+    spark_df = spark.createDataFrame(df)
+
+    # Create a feature vector
+    assembler = VectorAssembler(inputCols=feature_columns, outputCol="features")
+    data = assembler.transform(spark_df)
+
+    # Apply K-Means clustering
+    kmeans = KMeans(k=k, seed=1)
+    model = kmeans.fit(data)
+
+    # Assign clusters to the dataset
+    result = model.transform(data)
+    return result
+
+
+
 
 def regression_model(df, feature_columns, label_column):
     """
@@ -94,7 +145,14 @@ def regression_model(df, feature_columns, label_column):
 
 
 def main():
-    file_path = "/Users/pallavi/PycharmProjects/bigdata/Salary_Data.csv"  # Update with the path to your dataset
+    spark = SparkSession.builder \
+        .appName("MyFirstSparkApp") \
+        .master("local[*]") \
+        .config("spark.hadoop.fs.defaultFS", "file:///") \
+        .config("spark.sql.shuffle.partitions", "4") \
+        .getOrCreate()
+
+    file_path = "/Users/pallavi/PycharmProjects/bigdata/downsampled_file.csv"  # Update with the path to your dataset
 
     # Step 1: Load Data
     df = load_data(file_path)
@@ -111,10 +169,15 @@ def main():
     # Step 5: Clustering
     numeric_cols = df.select_dtypes(include=[np.number]).columns
     feature_columns = list(numeric_cols)
-    df = clustering(df, feature_columns)
 
+    # Use the Spark clustering function
+    clustered_df = clustering_spark(df, feature_columns, spark)
+    #
+    # Show clustered data
+    clustered_df.show(truncate=False)
+    #
     # Step 6: Regression Model
-    label_column = "Salary"  # Update with your target column
+    label_column = "lastapprcredamount_781A"  # Update with your target column
     feature_columns = [col for col in numeric_cols if col != label_column]
     regression_model(df, feature_columns, label_column)
 
